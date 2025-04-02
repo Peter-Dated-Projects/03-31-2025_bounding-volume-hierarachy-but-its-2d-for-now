@@ -1,20 +1,32 @@
-from engine.physics import entity
+import pygame
+import uuid
+
+# ------------------------------------------------------------------------ #
+# boid class
+# ------------------------------------------------------------------------ #
 
 
-# ========================================================================= #
-# boid object
-# ========================================================================= #
+class Boid:
+    """
+    Boid -- a single flight object
 
+    This class represents a single boid in the simulation. It contains
+    properties such as position, velocity, and acceleration. It also
+    contains methods for updating the boid's position and velocity based
+    on the rules of flocking behavior.
 
-class Boid(entity.Entity):
-    def __init__(self, name="boid", zlayer=0):
-        super().__init__(name, zlayer)
+    The boid
+    - is non-collideable
+    - has a color
+    - has a position
+    - has a velocity
+    - has an acceleration
 
-    # ----------------------------------------------------------------------- #
-    # logic
-    # ---------------------------------------------------------------------- #
+    """
 
-    def update(self):
-        # update boid logic here
-        print(self)
-        pass
+    def __init__(self):
+        self._id = uuid.uuid4()
+        self._position = pygame.Vector2()
+        self._velocity = pygame.Vector2()
+        self._acceleration = pygame.Vector2()
+        self._color = (255, 255, 255)

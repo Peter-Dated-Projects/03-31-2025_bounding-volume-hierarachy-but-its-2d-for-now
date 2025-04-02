@@ -1,0 +1,22 @@
+{
+  "font": {
+    "default": {
+      "name": "Arial",
+      "size": 14,
+      "bold": false,
+      "italic": false
+    }
+  },
+  "button": {
+    "normal_font": "default"
+  },
+  "label": {
+    "normal_font": "default"
+  },
+  "window": {
+    "normal_font": "default"
+  },
+  "general": {
+    "normal_font": "default"
+  }
+}
