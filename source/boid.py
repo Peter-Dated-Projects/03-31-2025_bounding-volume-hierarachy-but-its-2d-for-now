@@ -30,3 +30,7 @@ class Boid:
         self._velocity = pygame.Vector2()
         self._acceleration = pygame.Vector2()
         self._color = (255, 255, 255)
+
+        self._push = pygame.Vector2()
+        self._steer = pygame.Vector2()
+        self._cohesion = pygame.Vector2()
