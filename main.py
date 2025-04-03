@@ -3,6 +3,8 @@ import random
 import math
 
 from source import boid
+from source import ui
+from source import bvh
 
 # ------------------------------------------------------------------------ #
 # setup
@@ -11,7 +13,8 @@ from source import boid
 # constants
 W_RUNNING = False
 W_SIZE = [1280, 720]
-W_FB_SIZE = [1920, 1080]
+# W_FB_SIZE = [1920, 1080]
+W_FB_SIZE = [1280, 720]
 W_FLAGS = pygame.DOUBLEBUF | pygame.RESIZABLE | pygame.SRCALPHA
 W_BIT_DEPTH = 32
 W_BACKGROUND_COLOR = (0, 17, 41, 255)
@@ -34,11 +37,10 @@ W_FRAMEBUFFER = pygame.Surface(W_FB_SIZE).convert_alpha()
 
 DAMPING_FACTOR = 0.1
 SIMULATION_SIZE = 250
-DISTANCE_THRESHOLD = W_FB_SIZE[0] / 7
 
 
 UP = pygame.Vector2(0, 1)
-INIT_SPEED_RANGE = (70, 150)
+INIT_SPEED_RANGE = [70, 150]
 
 BOID_TRIANGLE = [
     pygame.Vector2(0, 10),
@@ -46,9 +48,16 @@ BOID_TRIANGLE = [
     pygame.Vector2(6, -6),
 ]
 BOID_LOGIC_CONSTANTS = {
-    "push_factor": 0.4,
-    "steer_factor": 0.7,
-    "cohesion_factor": 0.6,
+    "push_factor": 48,
+    "steer_factor": 4.85,
+    "cohesion_factor": 149,
+    "enable_push": 1,
+    "enable_steer": 1,
+    "enable_cohesion": 1,
+    "enable_random_movement": 1,
+    "random_angle": 2,
+    "enable_vectors": True,
+    "distance_threshold": 130,
 }
 
 # create the boids container
@@ -98,7 +107,7 @@ def boid_logic(boid: boid.Boid, boids):
         if _key != boid._id:
             other_boid = boids[_key]
             distance = boid._position.distance_to(other_boid._position)
-            if distance < DISTANCE_THRESHOLD:
+            if distance < BOID_LOGIC_CONSTANTS["distance_threshold"]:
                 _nearby.append(other_boid)
 
     if not _nearby:
@@ -107,7 +116,7 @@ def boid_logic(boid: boid.Boid, boids):
     # factors
     _steer_factor = boid._velocity.copy()
     _push_factor = pygame.Vector2(0, 0)
-    _cohesion_factor = boid._position.copy()
+    _cohesion_factor = pygame.Vector2(0, 0)
 
     for _other_boid in _nearby:
         _displacement = _other_boid._position - boid._position
@@ -115,43 +124,58 @@ def boid_logic(boid: boid.Boid, boids):
 
         # push factor - avoid others
         if _displacement_length > 0:
-            _push_factor += _displacement / (_displacement_length**2)
+            _push_factor += _displacement / _displacement_length**2 * 10
         # steer factor - follow others directions
-        _steer_factor += _other_boid._velocity.normalize() * (
-            DISTANCE_THRESHOLD - _displacement_length
-        )
+        _steer_factor += _other_boid._velocity
         # cohesion factor - average of neighbors
         _cohesion_factor += _other_boid._position
 
     # step 1: calculate push factor
     if _push_factor.length() > 0:
-        _push_factor = _push_factor.normalize() * -1
+        _push_factor *= -1
 
     # step 2: calculate steer factor
     if _steer_factor.length() > 0:
-        _steer_factor.normalize_ip()
+        _steer_factor /= len(_nearby)
+        _steer_factor = _steer_factor.normalize() * len(_nearby)
 
     # step 3: calculate cohesion factor
+    boid._cohesion_point = _cohesion_factor.copy()
     if _cohesion_factor.length() > 0:
-        _cohesion_factor /= len(_nearby) + 1
+        _cohesion_factor /= len(_nearby)
         _cohesion_factor = _cohesion_factor - boid._position
 
+        _cohesion_factor.normalize_ip()
+
     # finalize acceleration
-    boid._push = _push_factor * len(_nearby) * BOID_LOGIC_CONSTANTS["push_factor"]
-    boid._steer = _steer_factor * len(_nearby) * BOID_LOGIC_CONSTANTS["steer_factor"]
-    boid._cohesion = _cohesion_factor * BOID_LOGIC_CONSTANTS["cohesion_factor"]
-    boid._cohesion_point = _cohesion_factor
+    boid._push = (
+        _push_factor
+        * BOID_LOGIC_CONSTANTS["push_factor"]
+        * BOID_LOGIC_CONSTANTS["enable_push"]
+    )
+    boid._steer = (
+        _steer_factor
+        * BOID_LOGIC_CONSTANTS["steer_factor"]
+        * BOID_LOGIC_CONSTANTS["enable_steer"]
+    )
+    boid._cohesion = (
+        _cohesion_factor
+        * BOID_LOGIC_CONSTANTS["cohesion_factor"]
+        * BOID_LOGIC_CONSTANTS["enable_cohesion"]
+    )
     boid._acceleration.xy = boid._push + boid._steer + boid._cohesion
 
 
 def _handle_boids(boids, surface, delta):
     main_boid = boids[list(boids.keys())[0]]
-    print(
-        f"{main_boid._id} | "
-        f"{main_boid._push.x:>7.2f}, {main_boid._push.y:>7.2f} | "
-        f"{main_boid._steer.x:>7.2f}, {main_boid._steer.y:>7.2f} | "
-        f"{main_boid._cohesion.x:>7.2f}, {main_boid._cohesion.y:>7.2f}"
-    )
+    # print(
+    #     f"{main_boid._id} | "
+    #     f"{main_boid._push.x:>7.2f}, {main_boid._push.y:>7.2f} | "
+    #     f"{main_boid._steer.x:>7.2f}, {main_boid._steer.y:>7.2f} | "
+    #     f"{main_boid._cohesion.x:>7.2f}, {main_boid._cohesion.y:>7.2f}"
+    # )
+
+    # print(BOID_LOGIC_CONSTANTS)
     # draw triangles surrounding the boids
     for _key in boids.keys():
         boid = boids[_key]
@@ -165,14 +189,21 @@ def _handle_boids(boids, surface, delta):
         # keep boid velocity in a certain range
         if boid._velocity.length() < INIT_SPEED_RANGE[0]:
             boid._velocity = boid._velocity.normalize() * INIT_SPEED_RANGE[0]
-        if boid._velocity.length() > INIT_SPEED_RANGE[1]:
-            boid._velocity = boid._velocity.normalize() * INIT_SPEED_RANGE[1]
+        if boid._velocity.length() > INIT_SPEED_RANGE[1] + INIT_SPEED_RANGE[0]:
+            boid._velocity = boid._velocity.normalize() * (
+                INIT_SPEED_RANGE[1] + INIT_SPEED_RANGE[0]
+            )
 
         # move boid
-        if not pygame.key.get_pressed()[pygame.K_SPACE]:
-            boid._position += boid._velocity * delta
-            boid._velocity += boid._acceleration * delta
-            boid._velocity.rotate_ip(random.randint(-10, 10))
+        boid._position += boid._velocity * delta
+        boid._velocity += boid._acceleration * delta
+        if BOID_LOGIC_CONSTANTS["enable_random_movement"] == 1:
+            boid._velocity.rotate_ip(
+                random.randint(
+                    -BOID_LOGIC_CONSTANTS["random_angle"],
+                    BOID_LOGIC_CONSTANTS["random_angle"],
+                )
+            )
 
         # check if out of bounds
         if boid._position.x < 0:
@@ -192,6 +223,9 @@ def _handle_boids(boids, surface, delta):
 
         # draw lines
         pygame.draw.lines(surface, color, True, rotated_triangle, width=3)
+
+        if not BOID_LOGIC_CONSTANTS["enable_vectors"]:
+            continue
 
         # draw push, steer, and cohesion vectors
         pygame.draw.line(
@@ -234,7 +268,11 @@ def _handle_boids(boids, surface, delta):
         # draw a circle
         if main_boid._id == boid._id:
             pygame.draw.circle(
-                surface, (0, 255, 0), position, DISTANCE_THRESHOLD, width=1
+                surface,
+                (0, 255, 0),
+                position,
+                BOID_LOGIC_CONSTANTS["distance_threshold"],
+                width=1,
             )
             # draw weighted average flock position
             pygame.draw.circle(
@@ -249,66 +287,269 @@ def _handle_boids(boids, surface, delta):
 # pygame sliders
 # ------------------------------------------------------------------------ #
 
-# ui_manager = pygame_gui.UIManager((W_SIZE[0], W_SIZE[1]), "theme.json")
+if True:
+    ui_container = ui.UI(pygame.FRect(0, 0, 200, 400))
 
-# panel_rect = pygame.Rect((W_SIZE[0] - 200, 0), (200, 200))  # x, y, width, height
-# control_panel = pygame_gui.elements.UIPanel(
-#     relative_rect=panel_rect, manager=ui_manager, starting_layer_height=1
-# )
+    # activate push or not
+    def update_push_factor():
+        if BOID_LOGIC_CONSTANTS["enable_push"] == 1:
+            BOID_LOGIC_CONSTANTS["enable_push"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["enable_push"] = 1
 
-# # separation
-# label_separation = pygame_gui.elements.UILabel(
-#     relative_rect=pygame.Rect((10, 10), (180, 20)),
-#     text="Separation",
-#     manager=ui_manager,
-#     container=control_panel,
-# )
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 0, 200, 30),
+            text="Enable Push Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(200, 0, 25, 25),
+            onclick=update_push_factor,
+            default_value=True,
+        )
+    )
 
-# slider_separation = pygame_gui.elements.UIHorizontalSlider(
-#     relative_rect=pygame.Rect((10, 35), (180, 20)),
-#     start_value=BOID_LOGIC_CONSTANTS["push_factor"],
-#     value_range=(0.0, 1.0),
-#     manager=ui_manager,
-#     container=control_panel,
-# )
+    # activate steer or not
+    def update_steer_factor():
+        if BOID_LOGIC_CONSTANTS["enable_steer"] == 1:
+            BOID_LOGIC_CONSTANTS["enable_steer"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["enable_steer"] = 1
 
-# # alignment
-# label_alignment = pygame_gui.elements.UILabel(
-#     relative_rect=pygame.Rect((10, 50), (180, 20)),
-#     text="Alignment",
-#     manager=ui_manager,
-#     container=control_panel,
-# )
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 30, 200, 30),
+            text="Enable Steer Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(200, 30, 25, 25),
+            onclick=update_steer_factor,
+            default_value=True,
+        )
+    )
 
-# slider_alignment = pygame_gui.elements.UIHorizontalSlider(
-#     relative_rect=pygame.Rect((10, 75), (180, 20)),
-#     start_value=BOID_LOGIC_CONSTANTS["steer_factor"],
-#     value_range=(0.0, 1.0),
-#     manager=ui_manager,
-#     container=control_panel,
-# )
+    # activate cohesion or not
+    def update_cohesion_factor():
+        if BOID_LOGIC_CONSTANTS["enable_cohesion"] == 1:
+            BOID_LOGIC_CONSTANTS["enable_cohesion"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["enable_cohesion"] = 1
 
-# # cohesion
-# label_cohesion = pygame_gui.elements.UILabel(
-#     relative_rect=pygame.Rect((10, 90), (180, 20)),
-#     text="Cohesion",
-#     manager=ui_manager,
-#     container=control_panel,
-# )
-# slider_cohesion = pygame_gui.elements.UIHorizontalSlider(
-#     relative_rect=pygame.Rect((10, 105), (180, 20)),
-#     start_value=BOID_LOGIC_CONSTANTS["cohesion_factor"],
-#     value_range=(0.0, 1.0),
-#     manager=ui_manager,
-#     container=control_panel,
-# )
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 60, 200, 30),
+            text="Enable Cohesion Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(250, 60, 25, 25),
+            onclick=update_cohesion_factor,
+            default_value=True,
+        )
+    )
+
+    # random movement or not
+    def update_random_movement():
+        if BOID_LOGIC_CONSTANTS["enable_random_movement"] == 1:
+            BOID_LOGIC_CONSTANTS["enable_random_movement"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["enable_random_movement"] = 1
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 90, 200, 30),
+            text="Enable Random Movement",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(250, 90, 25, 25),
+            onclick=update_random_movement,
+            default_value=True,
+        )
+    )
+
+    # add sliders for push, steer, and cohesion factors
+    def update_push_factor_ui(value):
+        # update the push factor in the boid logic constants
+        BOID_LOGIC_CONSTANTS["push_factor"] = value
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 120, 200, 20),
+            text="Push Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 150, 200, 20),
+            min_value=0,
+            max_value=100,
+            default_value=BOID_LOGIC_CONSTANTS["push_factor"],
+            update_func=update_push_factor_ui,
+        )
+    )
+
+    # add slider for steer factor
+    def update_steer_factor_ui(value):
+        # update the steer factor in the boid logic constants
+        BOID_LOGIC_CONSTANTS["steer_factor"] = value
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 180, 200, 20),
+            text="Steer Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 210, 200, 20),
+            min_value=0,
+            max_value=10,
+            default_value=BOID_LOGIC_CONSTANTS["steer_factor"],
+            update_func=update_steer_factor_ui,
+        )
+    )
+
+    # add slider for cohesion factor
+    def update_cohesion_factor_ui(value):
+        # update the cohesion factor in the boid logic constants
+        BOID_LOGIC_CONSTANTS["cohesion_factor"] = value
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 240, 200, 20),
+            text="Cohesion Factor",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 270, 200, 20),
+            min_value=0,
+            max_value=200,
+            default_value=BOID_LOGIC_CONSTANTS["cohesion_factor"],
+            update_func=update_cohesion_factor_ui,
+        )
+    )
+
+    # add slider for min speed
+    def update_min_speed_ui(value):
+        # update the min speed in the boid logic constants
+        INIT_SPEED_RANGE[0] = value
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 300, 200, 20),
+            text="Min Speed",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 330, 200, 20),
+            min_value=10,
+            max_value=500,
+            default_value=INIT_SPEED_RANGE[0],
+            update_func=update_min_speed_ui,
+        )
+    )
+
+    # add slider for detection radius
+    def update_detection_radius_ui(value):
+        # update the detection radius in the boid logic constants
+        BOID_LOGIC_CONSTANTS["distance_threshold"] = value
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 360, 200, 20),
+            text="Detection Radius",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 390, 200, 20),
+            min_value=0,
+            max_value=500,
+            default_value=BOID_LOGIC_CONSTANTS["distance_threshold"],
+            update_func=update_detection_radius_ui,
+        )
+    )
+
+    # add a toggle for show boid vectors
+    def update_show_vectors():
+        if BOID_LOGIC_CONSTANTS["enable_vectors"] == 1:
+            BOID_LOGIC_CONSTANTS["enable_vectors"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["enable_vectors"] = 1
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 420, 200, 20),
+            text="Show Vectors",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(200, 420, 25, 25),
+            onclick=update_show_vectors,
+            default_value=True,
+        )
+    )
+
+    # add a slider for random angle
+    def update_random_angle_ui(value):
+        # update the random angle in the boid logic constants
+        BOID_LOGIC_CONSTANTS["random_angle"] = int(value)
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 450, 200, 20),
+            text="Random Angle",
+        )
+    )
+    ui_container.add_element(
+        ui.UISlider(
+            pygame.FRect(0, 480, 200, 20),
+            min_value=0,
+            max_value=20,
+            default_value=BOID_LOGIC_CONSTANTS["random_angle"],
+            update_func=update_random_angle_ui,
+        )
+    )
+
+
+# ------------------------------------------------------------------------ #
+# bvh
+# ------------------------------------------------------------------------ #
+
+_bounding_volume_hierarchy = bvh.BVHContainer2D(
+    world_area=pygame.FRect(0, 0, W_FB_SIZE[0], W_FB_SIZE[1]),
+    objects=list(_boids_container.values()),
+    max_depth=4,
+)
+
+
+def _handle_bvh(boids, surface, delta):
+    # update the bvh
+    _bounding_volume_hierarchy.update(list(boids.values()))
+
+    # draw the bvh
+    _bounding_volume_hierarchy.draw(surface)
+
 
 # ------------------------------------------------------------------------ #
 # game loop
 # ------------------------------------------------------------------------ #
 
+_handle_boids(_boids_container, W_FRAMEBUFFER, W_DELTA)
+_handle_bvh(_boids_container, W_FRAMEBUFFER, W_DELTA)
 
 W_RUNNING = True
+
 while W_RUNNING:
 
     for e in pygame.event.get():
@@ -317,28 +558,34 @@ while W_RUNNING:
         if e.type == pygame.KEYDOWN:
             if e.key == pygame.K_ESCAPE:
                 W_RUNNING = False
-
-    #         # Pass events to the UI manager
-    #     ui_manager.process_events(e)
-
-    # # Update the UI manager
-    # ui_manager.update(delta_time=W_DELTA)
-
-    # # Retrieve slider values
-    # BOID_LOGIC_CONSTANTS["push_factor"] = slider_separation.get_current_value()
-    # BOID_LOGIC_CONSTANTS["steer_factor"] = slider_alignment.get_current_value()
-    # BOID_LOGIC_CONSTANTS["cohesion_factor"] = slider_cohesion.get_current_value()
+        if e.type == pygame.KEYUP:
+            if e.key == pygame.K_SPACE:
+                # show ui
+                ui_container._visible = not ui_container._visible
+        if e.type == pygame.VIDEORESIZE:
+            W_SIZE = e.w, e.h
+            W_WINDOW = pygame.display.set_mode(W_SIZE, W_FLAGS, W_BIT_DEPTH)
+            W_BUF_SIZE = (W_SIZE[0] * 1.03, W_SIZE[1] * 1.03)
+            W_BUF_POS = (
+                -(W_BUF_SIZE[0] - W_SIZE[0]) // 2,
+                -(W_BUF_SIZE[1] - W_SIZE[1]) // 2,
+            )
 
     # update game state
     W_FRAMEBUFFER.fill(W_BACKGROUND_COLOR)
 
-    # handle boids
-    _handle_boids(_boids_container, W_FRAMEBUFFER, W_DELTA)
+    if not pygame.key.get_pressed()[pygame.K_BACKSPACE]:
+        # handle objects + rendering
+        _handle_boids(_boids_container, W_FRAMEBUFFER, W_DELTA)
+        _handle_bvh(_boids_container, W_FRAMEBUFFER, W_DELTA)
 
-    # render to window
-    W_WINDOW.blit(pygame.transform.scale(W_FRAMEBUFFER, W_BUF_SIZE), W_BUF_POS)
+        # render to window
+        W_WINDOW.blit(pygame.transform.scale(W_FRAMEBUFFER, W_BUF_SIZE), W_BUF_POS)
+
+    # draw ui
+    ui_container.draw(W_WINDOW)
+
     pygame.display.flip()
-
     W_DELTA = W_CLOCK.tick(W_FPS) / 1000
 
 
