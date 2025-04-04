@@ -58,27 +58,40 @@ BOID_LOGIC_CONSTANTS = {
     "random_angle": 2,
     "enable_vectors": True,
     "distance_threshold": 130,
+    "only_bvh_leaf": True,
 }
 
 # create the boids container
 _boids_container = {}
+_bounding_volume_hierarchy = bvh.BVHContainer2D(
+    world_area=pygame.FRect(0, 0, W_FB_SIZE[0], W_FB_SIZE[1]),
+    objects=[],
+    max_depth=4,
+)
 
-# create default boids
-for i in range(SIMULATION_SIZE):
-    _boid = boid.Boid()
-    _boid._position.xy = (
-        random.randint(0, W_FB_SIZE[0]),
-        random.randint(0, W_FB_SIZE[1]),
-    )
-    _boid._velocity.xy = (
-        random.random() * 2 - 1,
-        random.random() * 2 - 1,
-    )
-    _boid._velocity *= random.randint(INIT_SPEED_RANGE[0], INIT_SPEED_RANGE[1])
-    _boid._acceleration.xy = (0, 0)
 
-    # add to container
-    _boids_container[_boid._id] = _boid
+def _create_world():
+    global _boids_container
+
+    _boids_container.clear()
+
+    # create default boids
+    for i in range(SIMULATION_SIZE):
+        _boid = boid.Boid()
+        _boid._position.xy = (
+            random.randint(0, W_FB_SIZE[0]),
+            random.randint(0, W_FB_SIZE[1]),
+        )
+        _boid._velocity.xy = (
+            random.random() * 2 - 1,
+            random.random() * 2 - 1,
+        )
+        _boid._velocity *= random.randint(INIT_SPEED_RANGE[0], INIT_SPEED_RANGE[1])
+        _boid._acceleration.xy = (0, 0)
+
+        # add to container
+        _boids_container[_boid._id] = _boid
+    _bounding_volume_hierarchy.update(list(_boids_container.values()))
 
 
 # ------------------------------------------------------------------------ #
@@ -86,7 +99,27 @@ for i in range(SIMULATION_SIZE):
 # ------------------------------------------------------------------------ #
 
 
-def boid_logic(boid: boid.Boid, boids):
+def iterate_nearby_boids(bvh, boid):
+    """
+    Iterate through the nearby boids in the BVH.
+    """
+    _nodes = bvh.get_colliding_nodes(
+        pygame.FRect(
+            boid._position.x - BOID_LOGIC_CONSTANTS["distance_threshold"],
+            boid._position.y - BOID_LOGIC_CONSTANTS["distance_threshold"],
+            BOID_LOGIC_CONSTANTS["distance_threshold"] * 2,
+            BOID_LOGIC_CONSTANTS["distance_threshold"] * 2,
+        )
+    )
+
+    for node in _nodes:
+        for _other_boid in node._objects:
+            # check if the boid is not the same as the other boid
+            if boid._id != _other_boid._id:
+                yield _other_boid
+
+
+def boid_logic(boid: boid.Boid, bvh: bvh.BVHContainer2D):
     """
 
     This function only changes 1 things:
@@ -102,23 +135,13 @@ def boid_logic(boid: boid.Boid, boids):
     3. Cohesion: steer to move toward the average position of local flockmates
     """
 
-    _nearby = []
-    for _key in boids.keys():
-        if _key != boid._id:
-            other_boid = boids[_key]
-            distance = boid._position.distance_to(other_boid._position)
-            if distance < BOID_LOGIC_CONSTANTS["distance_threshold"]:
-                _nearby.append(other_boid)
-
-    if not _nearby:
-        return
-
     # factors
     _steer_factor = boid._velocity.copy()
     _push_factor = pygame.Vector2(0, 0)
     _cohesion_factor = pygame.Vector2(0, 0)
+    _nearby_boids = 0
 
-    for _other_boid in _nearby:
+    for _other_boid in iterate_nearby_boids(bvh, boid):
         _displacement = _other_boid._position - boid._position
         _displacement_length = _displacement.length()
 
@@ -130,19 +153,23 @@ def boid_logic(boid: boid.Boid, boids):
         # cohesion factor - average of neighbors
         _cohesion_factor += _other_boid._position
 
+        _nearby_boids += 1
+    if _nearby_boids == 0:
+        return
+
     # step 1: calculate push factor
     if _push_factor.length() > 0:
         _push_factor *= -1
 
     # step 2: calculate steer factor
     if _steer_factor.length() > 0:
-        _steer_factor /= len(_nearby)
-        _steer_factor = _steer_factor.normalize() * len(_nearby)
+        _steer_factor /= _nearby_boids
+        _steer_factor = _steer_factor.normalize() * _nearby_boids
 
     # step 3: calculate cohesion factor
     boid._cohesion_point = _cohesion_factor.copy()
     if _cohesion_factor.length() > 0:
-        _cohesion_factor /= len(_nearby)
+        _cohesion_factor /= _nearby_boids
         _cohesion_factor = _cohesion_factor - boid._position
 
         _cohesion_factor.normalize_ip()
@@ -166,7 +193,7 @@ def boid_logic(boid: boid.Boid, boids):
     boid._acceleration.xy = boid._push + boid._steer + boid._cohesion
 
 
-def _handle_boids(boids, surface, delta):
+def _handle_boids(boids, bvh, surface, delta):
     main_boid = boids[list(boids.keys())[0]]
     # print(
     #     f"{main_boid._id} | "
@@ -184,7 +211,7 @@ def _handle_boids(boids, surface, delta):
         velocity = boid._velocity
 
         # implement boid logic
-        boid_logic(boid, boids)
+        boid_logic(boid, bvh)
 
         # keep boid velocity in a certain range
         if boid._velocity.length() < INIT_SPEED_RANGE[0]:
@@ -521,16 +548,31 @@ if True:
         )
     )
 
+    # add a button for only bvh leaf
+    def update_only_bvh_leaf():
+        if BOID_LOGIC_CONSTANTS["only_bvh_leaf"] == 1:
+            BOID_LOGIC_CONSTANTS["only_bvh_leaf"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["only_bvh_leaf"] = 1
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 510, 200, 20),
+            text="Only BVH Leaf",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(200, 510, 25, 25),
+            onclick=update_only_bvh_leaf,
+            default_value=True,
+        )
+    )
+
 
 # ------------------------------------------------------------------------ #
 # bvh
 # ------------------------------------------------------------------------ #
-
-_bounding_volume_hierarchy = bvh.BVHContainer2D(
-    world_area=pygame.FRect(0, 0, W_FB_SIZE[0], W_FB_SIZE[1]),
-    objects=list(_boids_container.values()),
-    max_depth=4,
-)
 
 
 def _handle_bvh(boids, surface, delta):
@@ -538,14 +580,19 @@ def _handle_bvh(boids, surface, delta):
     _bounding_volume_hierarchy.update(list(boids.values()))
 
     # draw the bvh
-    _bounding_volume_hierarchy.draw(surface)
+    _bounding_volume_hierarchy.draw(
+        surface,
+        only_leaf=BOID_LOGIC_CONSTANTS["only_bvh_leaf"],
+        draw_vectors=BOID_LOGIC_CONSTANTS["enable_vectors"],
+    )
 
 
 # ------------------------------------------------------------------------ #
 # game loop
 # ------------------------------------------------------------------------ #
 
-_handle_boids(_boids_container, W_FRAMEBUFFER, W_DELTA)
+_create_world()
+_handle_boids(_boids_container, _bounding_volume_hierarchy, W_FRAMEBUFFER, W_DELTA)
 _handle_bvh(_boids_container, W_FRAMEBUFFER, W_DELTA)
 
 W_RUNNING = True
@@ -562,6 +609,9 @@ while W_RUNNING:
             if e.key == pygame.K_SPACE:
                 # show ui
                 ui_container._visible = not ui_container._visible
+            elif e.key == pygame.K_r:
+                # reset boids
+                _create_world()
         if e.type == pygame.VIDEORESIZE:
             W_SIZE = e.w, e.h
             W_WINDOW = pygame.display.set_mode(W_SIZE, W_FLAGS, W_BIT_DEPTH)
@@ -576,7 +626,9 @@ while W_RUNNING:
 
     if not pygame.key.get_pressed()[pygame.K_BACKSPACE]:
         # handle objects + rendering
-        _handle_boids(_boids_container, W_FRAMEBUFFER, W_DELTA)
+        _handle_boids(
+            _boids_container, _bounding_volume_hierarchy, W_FRAMEBUFFER, W_DELTA
+        )
         _handle_bvh(_boids_container, W_FRAMEBUFFER, W_DELTA)
 
         # render to window

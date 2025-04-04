@@ -110,16 +110,26 @@ class BVHContainer2D:
             result._object_count = len(objects)
             result._depth = depth
             result._parent = None
+            result._is_leaf = True
 
         # print(f"Bounding Area: {result._bounding_area}")
         # return result
         return result
 
-    def draw(self, surface, only_leaf: bool = False):
+    def draw(self, surface, only_leaf: bool = False, draw_vectors: bool = False):
         """
         Draw the BVH tree.
         """
-        self._root.draw(surface, None, only_leaf=only_leaf)
+        self._root.draw(surface, None, only_leaf=only_leaf, draw_vectors=draw_vectors)
+
+    def get_root(self):
+        return self._root
+
+    def get_colliding_nodes(self, rect):
+        """
+        Return a list of all colliding nodes.
+        """
+        return self._root.get_colliding_bvh(rect)
 
 
 # ------------------------------------------------------------------------ #
@@ -142,6 +152,7 @@ class BVHNode2D:
         self._bounding_area = bounding_area
 
         # depth + parent
+        self._is_leaf = False
         self._depth = depth
         self._parent = parent
 
@@ -152,7 +163,9 @@ class BVHNode2D:
         self._objects = []
         self._object_count = 0
 
-    def draw(self, surface, color: tuple, only_leaf: bool = False):
+    def draw(
+        self, surface, color: tuple, only_leaf: bool = False, draw_vectors: bool = False
+    ):
         """
         Draw the BVH node.
         """
@@ -170,8 +183,11 @@ class BVHNode2D:
                     color[3] + 20,
                 ),
                 only_leaf=only_leaf,
+                draw_vectors=draw_vectors,
             )
 
+        if not draw_vectors:
+            return
         if (
             not only_leaf or (only_leaf and not self._children)
         ) and self._object_count > 0:
@@ -182,3 +198,21 @@ class BVHNode2D:
                 self._bounding_area,
                 1,
             )
+
+    def get_colliding_bvh(self, rect):
+        """Return a list of all colliding bvh nodes."""
+        if self._is_leaf:
+            return [self] if self._bounding_area.colliderect(rect) else []
+        else:
+            result = []
+            for child in self._children:
+                result += child.get_colliding_bvh(rect)
+            return result
+
+    def iterate_objects(self):
+        """Return a list of all objects in this node."""
+        if not self._is_leaf:
+            return []
+
+        for obj in self._objects:
+            yield obj
