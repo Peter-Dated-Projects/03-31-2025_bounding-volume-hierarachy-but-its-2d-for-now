@@ -40,7 +40,7 @@ W_FRAMEBUFFER = pygame.Surface(W_FB_SIZE).convert_alpha()
 # ------------------------------------------------------------------------ #
 
 DAMPING_FACTOR = 0.1
-SIMULATION_SIZE = 250
+SIMULATION_SIZE = 700
 
 
 UP = pygame.Vector2(0, 1)
@@ -699,8 +699,8 @@ while W_RUNNING:
     W_DELTA = W_CLOCK.tick(W_FPS) / 1000
 
     # auto stop after 10 seconds
-    if time.time() - W_GLOBAL_START > 10:
-        W_RUNNING = False
+    # if time.time() - W_GLOBAL_START > 10:
+    #     W_RUNNING = False
 
     print(time.time() - W_GLOBAL_START)
 
