@@ -1,6 +1,8 @@
 # 03-31-2025_bounding-volume-hierarachy-but-its-2d-for-now
 practice guys. practice.
 
+![Boids Simulation](docs/boids.gif)
+
 ## The Concept
 
 I built a boids simulation that uses a BVH (bounding volume hierarchy) to optimize the boid computation and make it fast. 
