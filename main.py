@@ -7,6 +7,8 @@ from source import boid
 from source import ui
 from source import bvh
 
+import colorsys
+
 # ------------------------------------------------------------------------ #
 # setup
 # ------------------------------------------------------------------------ #
@@ -14,8 +16,8 @@ from source import bvh
 # constants
 W_RUNNING = False
 W_SIZE = [1280, 720]
+W_FB_SIZE = pygame.Vector2([1280, 720]) * 1.2
 # W_FB_SIZE = [1920, 1080]
-W_FB_SIZE = [1920, 1080]
 W_FLAGS = pygame.DOUBLEBUF | pygame.RESIZABLE | pygame.SRCALPHA
 W_BIT_DEPTH = 32
 W_BACKGROUND_COLOR = (0, 17, 41, 255)
@@ -40,7 +42,7 @@ W_FRAMEBUFFER = pygame.Surface(W_FB_SIZE).convert_alpha()
 # ------------------------------------------------------------------------ #
 
 DAMPING_FACTOR = 0.1
-SIMULATION_SIZE = 700
+SIMULATION_SIZE = 400
 
 
 UP = pygame.Vector2(0, 1)
@@ -80,7 +82,20 @@ _bounding_volume_hierarchy = bvh.BVHContainer2D(
 def _create_world():
     global _boids_container
 
-    _boids_container.clear()
+    if len(_boids_container) > 0:
+        # just reset positions
+        for _boid in _boids_container.values():
+            _boid._position.xy = (
+                random.randint(0, W_FB_SIZE[0]),
+                random.randint(0, W_FB_SIZE[1]),
+            )
+            _boid._velocity.xy = (
+                random.random() * 2 - 1,
+                random.random() * 2 - 1,
+            )
+            _boid._velocity *= random.randint(INIT_SPEED_RANGE[0], INIT_SPEED_RANGE[1])
+            _boid._acceleration.xy = (0, 0)
+        return
 
     # create default boids
     for i in range(SIMULATION_SIZE):
@@ -231,7 +246,14 @@ def _handle_boids(boids, bvh, surface, delta):
     # draw triangles surrounding the boids
     for _key in boids.keys():
         boid = boids[_key]
-        color = boid._color if main_boid._id == boid._id else (255, 0, 255)
+        color = boid._color
+        if boid._id != main_boid._id:
+            color = colorsys.hsv_to_rgb(
+                boid._acceleration.length() / (15 * INIT_SPEED_RANGE[0]),
+                1,
+                1,
+            )
+            color = tuple(int(c * 255) for c in color)
         position = boid._position
         velocity = boid._velocity
 
@@ -702,7 +724,7 @@ while W_RUNNING:
     # if time.time() - W_GLOBAL_START > 10:
     #     W_RUNNING = False
 
-    print(time.time() - W_GLOBAL_START)
+    # print(time.time() - W_GLOBAL_START)
 
 
 print(_delta_total / _frame_total * 1000)
