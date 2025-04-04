@@ -40,7 +40,7 @@ W_FRAMEBUFFER = pygame.Surface(W_FB_SIZE).convert_alpha()
 # ------------------------------------------------------------------------ #
 
 DAMPING_FACTOR = 0.1
-SIMULATION_SIZE = 5000
+SIMULATION_SIZE = 250
 
 
 UP = pygame.Vector2(0, 1)
