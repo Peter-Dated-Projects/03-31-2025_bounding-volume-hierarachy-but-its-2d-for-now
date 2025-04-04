@@ -1,3 +1,4 @@
+import time
 import pygame
 import random
 import math
@@ -14,7 +15,7 @@ from source import bvh
 W_RUNNING = False
 W_SIZE = [1280, 720]
 # W_FB_SIZE = [1920, 1080]
-W_FB_SIZE = [1280, 720]
+W_FB_SIZE = [1920, 1080]
 W_FLAGS = pygame.DOUBLEBUF | pygame.RESIZABLE | pygame.SRCALPHA
 W_BIT_DEPTH = 32
 W_BACKGROUND_COLOR = (0, 17, 41, 255)
@@ -23,6 +24,9 @@ W_CLOCK = pygame.time.Clock()
 W_BUF_SIZE = (W_SIZE[0] * 1.03, W_SIZE[1] * 1.03)
 W_BUF_POS = (-(W_BUF_SIZE[0] - W_SIZE[0]) // 2, -(W_BUF_SIZE[1] - W_SIZE[1]) // 2)
 
+W_GLOBAL_START = time.time()
+W_START = time.time()
+W_END = time.time()
 W_DELTA = 1 / 60
 W_FPS = 60
 
@@ -36,7 +40,7 @@ W_FRAMEBUFFER = pygame.Surface(W_FB_SIZE).convert_alpha()
 # ------------------------------------------------------------------------ #
 
 DAMPING_FACTOR = 0.1
-SIMULATION_SIZE = 250
+SIMULATION_SIZE = 5000
 
 
 UP = pygame.Vector2(0, 1)
@@ -56,9 +60,12 @@ BOID_LOGIC_CONSTANTS = {
     "enable_cohesion": 1,
     "enable_random_movement": 1,
     "random_angle": 2,
-    "enable_vectors": True,
     "distance_threshold": 130,
+    # "distance_threshold": 30,
     "only_bvh_leaf": True,
+    # for debugging
+    "enable_vectors": False,
+    "use_bvh": True,
 }
 
 # create the boids container
@@ -99,7 +106,7 @@ def _create_world():
 # ------------------------------------------------------------------------ #
 
 
-def iterate_nearby_boids(bvh, boid):
+def iterate_nearby_boids(bvh, boids, boid):
     """
     Iterate through the nearby boids in the BVH.
     """
@@ -119,7 +126,19 @@ def iterate_nearby_boids(bvh, boid):
                 yield _other_boid
 
 
-def boid_logic(boid: boid.Boid, bvh: bvh.BVHContainer2D):
+def iterate_nearby_boids_no_bvh(bvh, boids, boid):
+    """
+    Iterate through the nearby boids in the BVH.
+    """
+    for _other_boid in boids.values():
+        # check if the boid is not the same as the other boid
+        if boid._id != _other_boid._id:
+            _displacement = _other_boid._position - boid._position
+            if _displacement.length() < BOID_LOGIC_CONSTANTS["distance_threshold"]:
+                yield _other_boid
+
+
+def boid_logic(boid: boid.Boid, boids: dict, bvh: bvh.BVHContainer2D):
     """
 
     This function only changes 1 things:
@@ -141,7 +160,13 @@ def boid_logic(boid: boid.Boid, bvh: bvh.BVHContainer2D):
     _cohesion_factor = pygame.Vector2(0, 0)
     _nearby_boids = 0
 
-    for _other_boid in iterate_nearby_boids(bvh, boid):
+    _iter_func = (
+        iterate_nearby_boids
+        if BOID_LOGIC_CONSTANTS["use_bvh"] == 1
+        else iterate_nearby_boids_no_bvh
+    )
+
+    for _other_boid in _iter_func(bvh, boids, boid):
         _displacement = _other_boid._position - boid._position
         _displacement_length = _displacement.length()
 
@@ -211,7 +236,7 @@ def _handle_boids(boids, bvh, surface, delta):
         velocity = boid._velocity
 
         # implement boid logic
-        boid_logic(boid, bvh)
+        boid_logic(boid, boids, bvh)
 
         # keep boid velocity in a certain range
         if boid._velocity.length() < INIT_SPEED_RANGE[0]:
@@ -334,7 +359,7 @@ if True:
         ui.UIButton(
             pygame.FRect(200, 0, 25, 25),
             onclick=update_push_factor,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["enable_push"],
         )
     )
 
@@ -355,7 +380,7 @@ if True:
         ui.UIButton(
             pygame.FRect(200, 30, 25, 25),
             onclick=update_steer_factor,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["enable_steer"],
         )
     )
 
@@ -376,7 +401,7 @@ if True:
         ui.UIButton(
             pygame.FRect(250, 60, 25, 25),
             onclick=update_cohesion_factor,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["enable_cohesion"],
         )
     )
 
@@ -397,7 +422,7 @@ if True:
         ui.UIButton(
             pygame.FRect(250, 90, 25, 25),
             onclick=update_random_movement,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["enable_random_movement"],
         )
     )
 
@@ -523,7 +548,7 @@ if True:
         ui.UIButton(
             pygame.FRect(200, 420, 25, 25),
             onclick=update_show_vectors,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["enable_vectors"],
         )
     )
 
@@ -565,10 +590,30 @@ if True:
         ui.UIButton(
             pygame.FRect(200, 510, 25, 25),
             onclick=update_only_bvh_leaf,
-            default_value=True,
+            default_value=BOID_LOGIC_CONSTANTS["only_bvh_leaf"],
         )
     )
 
+    # use bvh
+    def update_use_bvh():
+        if BOID_LOGIC_CONSTANTS["use_bvh"] == 1:
+            BOID_LOGIC_CONSTANTS["use_bvh"] = 0
+        else:
+            BOID_LOGIC_CONSTANTS["use_bvh"] = 1
+
+    ui_container.add_element(
+        ui.UILabel(
+            pygame.FRect(0, 540, 200, 20),
+            text="Use BVH",
+        )
+    )
+    ui_container.add_element(
+        ui.UIButton(
+            pygame.FRect(200, 540, 25, 25),
+            onclick=update_use_bvh,
+            default_value=BOID_LOGIC_CONSTANTS["use_bvh"],
+        )
+    )
 
 # ------------------------------------------------------------------------ #
 # bvh
@@ -595,9 +640,16 @@ _create_world()
 _handle_boids(_boids_container, _bounding_volume_hierarchy, W_FRAMEBUFFER, W_DELTA)
 _handle_bvh(_boids_container, W_FRAMEBUFFER, W_DELTA)
 
+W_GLOBAL_START = time.time()
+
 W_RUNNING = True
 
+_delta_total = 0
+_frame_total = 0
+
 while W_RUNNING:
+
+    W_START = time.time()
 
     for e in pygame.event.get():
         if e.type == pygame.QUIT:
@@ -638,7 +690,20 @@ while W_RUNNING:
     ui_container.draw(W_WINDOW)
 
     pygame.display.flip()
+    W_END = time.time()
+    W_DELTA = W_END - W_START
+
+    _delta_total += W_DELTA
+    _frame_total += 1
+
     W_DELTA = W_CLOCK.tick(W_FPS) / 1000
 
+    # auto stop after 10 seconds
+    if time.time() - W_GLOBAL_START > 10:
+        W_RUNNING = False
 
+    print(time.time() - W_GLOBAL_START)
+
+
+print(_delta_total / _frame_total * 1000)
 pygame.quit()
